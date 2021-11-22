@@ -16,17 +16,11 @@ class DikeDataFrame:
 
         return wrapper
 
-    def __getattribute__(self, item):
-        try:
-            value = object.__getattribute__(self, item)
-            return value
-        except AttributeError:
-            value = object.__getattribute__(self, 'wrapper')
-
-        if callable(value):
-            decorator = object.__getattribute__(self, '_decorator')
-            return decorator(value, item)
-        return value
+    def __getattr__(self, item):
+        # TODO check if item is column name
+        value = object.__getattribute__(self, 'wrapper')
+        decorator = object.__getattribute__(self, '_decorator')
+        return decorator(value, item)
 
     def wrapper(self, *args, **kwargs):
         return self

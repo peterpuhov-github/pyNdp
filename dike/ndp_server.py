@@ -1,15 +1,23 @@
+import io
+import json
 import threading
 import http.server
 from http import HTTPStatus
 import xml.etree.ElementTree
 import urllib.parse
-import pyarrow
-from pyarrow.fs import HadoopFileSystem
+from collections import OrderedDict
+from fastparquet import ParquetFile
+
+import dike.webhdfs
+import dike.code_factory
 
 DIKE_CONFIG = {}
 
 
 class NdpMasterRequestHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
+
     def send_name_node_request(self):
         conn = http.client.HTTPConnection(DIKE_CONFIG['dfs.namenode.http-address'])
         conn.request("GET", self.path, '', self.headers)
@@ -23,22 +31,30 @@ class NdpMasterRequestHandler(http.server.BaseHTTPRequestHandler):
         if 'ReadParam' in self.headers:
             print('ReadParam', self.headers['ReadParam'])
 
-        response, data = self.send_name_node_request()
-        self.send_response(response.status, response.reason)
-        for key in response.headers.keys():
-            if key == 'Location':
-                location = response.headers[key]
-                url = urllib.parse.urlparse(location)
-                url_split = list(urllib.parse.urlsplit(location))
-                url_split[1] = "{}:{}".format(DIKE_CONFIG['dike.pyndp.http-ip'], DIKE_CONFIG['dike.pyndp.data-port'])
-                ndp_location = urllib.parse.urlunsplit(url_split)
-                print(key, ndp_location)
-                self.send_header(key, ndp_location)
-            else:
-                self.send_header(key, response.headers[key])
+        url = urllib.parse.urlparse(self.path)
+        query = url.query.split('&')
+        user = None
+        for q in query:
+            if 'user.name=' in q:
+                user = q.split('user.name=')[1]
 
+        netloc = DIKE_CONFIG['dfs.namenode.http-address']
+        f = dike.webhdfs.WebHdfsFile(f'webhdfs://{netloc}/{self.path}', user=user)
+        reader = io.BufferedReader(f, buffer_size=(1 << 20))
+        pf = ParquetFile(reader)
+        finfo = OrderedDict()
+        finfo['columns'] = pf.columns
+        finfo['dtypes'] = [pf.dtypes[c].name for c in pf.columns]
+        finfo['row_group_count'] = len(pf.row_groups)
+
+        spark_worker_command = dike.code_factory.create_spark_worker_command()
+        finfo['spark_worker_command'] = spark_worker_command.hex()
+        finfo_json = json.dumps(finfo)
+        print(finfo_json)
+        print(len(pf.row_groups))
+        self.send_response(HTTPStatus.OK)
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(finfo_json.encode())
 
 
 class NdpDataRequestHandler(http.server.BaseHTTPRequestHandler):

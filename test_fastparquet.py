@@ -15,7 +15,7 @@ if __name__ == '__main__':
     # TPC-H 100 GB
     # fname = '/tpch-test-parquet/lineitem.parquet'
 
-    dike_file = dike.webhdfs.WebHdfsFile(f'webhdfs://172.18.0.100:9860/{fname}', user='peter')
+    dike_file = dike.webhdfs.WebHdfsFile(f'webhdfs://dikehdfs:9860/{fname}', user='peter')
     f = io.BufferedReader(dike_file, buffer_size=(1 << 20))
     pf = ParquetFile(f)
 
