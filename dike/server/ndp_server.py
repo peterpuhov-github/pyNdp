@@ -7,7 +7,7 @@ import xml.etree.ElementTree
 import urllib.parse
 from collections import OrderedDict
 from fastparquet import ParquetFile
-
+import pickle
 import dike.webhdfs
 import dike.code_factory
 
@@ -108,3 +108,6 @@ def serve_forever(config_file):
     for th in threads:
         th.join()
 
+if __name__ == '__main__':
+    # Launch Spark worker simulation
+    serve_forever('../../dikeHDFS.xml')

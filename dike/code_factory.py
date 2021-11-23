@@ -14,14 +14,19 @@ class DeSerializer:
 class Serializer:
     def dump_stream(self, out_iter, outfile):
         #  outfile.write(out_iter.encode())
-        print(out_iter)
-        outfile.write(len(out_iter))
-        outfile.write(out_iter.encode("utf-8"))
+        # print(out_iter)
+        # outfile.write(len(out_iter))
+        # outfile.write(out_iter.encode("utf-8"))
+        pass
 
 
 def create_spark_worker_command():
     #   Format should be ( func, profiler, deserializer, serializer)
-    command = (ndp_reader, None, DeSerializer(), Serializer())
+    func = ndp_reader
+    deser = DeSerializer()
+    ser = Serializer()
+
+    command = (func, None, deser, ser)
     pickle_protocol = pickle.HIGHEST_PROTOCOL
     return pickle.dumps(command, pickle_protocol)
 

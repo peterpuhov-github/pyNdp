@@ -604,7 +604,7 @@ def main(infile, outfile):
                 serializer.dump_stream(out_iter, outfile)
             finally:
                 if hasattr(out_iter, 'close'):
-                    out_iter.close()
+                    out_iter.close()PickleSerializer
 
         if profiler:
             profiler.profile(process)
@@ -677,23 +677,7 @@ class Serializer:
         print(out_iter)
 
 
-def test():
-    command = (ndp_reader, None, DeSerializer(), Serializer())
-    #  obj = pickle.dumps(command, pickle_protocol)
-    obj = b'\x80\x05\x95I\x00\x00\x00\x00\x00\x00\x00(\x8c\x08__main__\x94\x8c\nndp_reader\x94\x93\x94Nh\x00\x8c\x0cDeSerializer\x94\x93\x94)\x81\x94h\x00\x8c\nSerializer\x94\x93\x94)\x81\x94t\x94.'
-    print(obj)
-    try:
-        func, profiler, deserializer, serializer = pickle.loads(obj, encoding="bytes")
-    except Exception as e:
-        print(e.__doc__)
-        print(e.message)
-
-    iterator = deserializer.load_stream(None)
-    out_iter = func(0, iterator)
-    serializer.dump_stream(out_iter, None)
-
 if __name__ == '__main__':
-    #  test()
     # Read information about how to connect back to the JVM from the environment.
     #  java_port = int(os.environ["PYTHON_WORKER_FACTORY_PORT"])
     #  auth_secret = os.environ["PYTHON_WORKER_FACTORY_SECRET"]
