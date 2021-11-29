@@ -604,7 +604,7 @@ def main(infile, outfile):
                 serializer.dump_stream(out_iter, outfile)
             finally:
                 if hasattr(out_iter, 'close'):
-                    out_iter.close()PickleSerializer
+                    out_iter.close()
 
         if profiler:
             profiler.profile(process)
