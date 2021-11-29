@@ -1,4 +1,5 @@
 import pickle
+import json
 import dike.client.spark_driver
 import dike.client.tpch
 
@@ -6,17 +7,22 @@ from pyspark.serializers import write_with_length, write_int, read_long, read_bo
     write_long, read_int, SpecialLengths, UTF8Deserializer, PickleSerializer, \
     BatchedSerializer
 
-def ndp_reader(split_index, iterator):
-    fname = '/tpch-test-parquet-1g/lineitem.parquet/' \
-            'part-00000-badcef81-d816-44c1-b936-db91dae4c15f-c000.snappy.parquet'
 
-    q14 = dike.client.tpch.TpchQ14(fname, 0)
+def ndp_reader(split_index, dag_json):
+    dag = json.loads(dag_json)
+    print(dag['NodeArray'])
+    input_node = [n for n in dag['NodeArray'] if n['Type'] =='_INPUT'][0]
+
+    q14 = dike.client.tpch.TpchQ14(input_node['File'], int(input_node['RowGroup']))
+
     return q14
 
+utf8_deserializer = UTF8Deserializer()
 
 class DeSerializer:
-    def load_stream(self, infile=None):
-        pass
+    def load_stream(self, infile):
+        dag = utf8_deserializer.loads(infile)
+        return dag
 
 
 class Serializer:
