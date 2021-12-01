@@ -7,8 +7,7 @@ import xml.etree.ElementTree
 import urllib.parse
 from collections import OrderedDict
 from fastparquet import ParquetFile
-import pickle
-import dike.webhdfs
+import dike.core.webhdfs
 import dike.code_factory
 
 DIKE_CONFIG = {}
@@ -39,7 +38,7 @@ class NdpMasterRequestHandler(http.server.BaseHTTPRequestHandler):
                 user = q.split('user.name=')[1]
 
         netloc = DIKE_CONFIG['dfs.namenode.http-address']
-        f = dike.webhdfs.WebHdfsFile(f'webhdfs://{netloc}/{self.path}', user=user)
+        f = dike.core.webhdfs.WebHdfsFile(f'webhdfs://{netloc}/{self.path}', user=user)
         reader = io.BufferedReader(f, buffer_size=(1 << 20))
         pf = ParquetFile(reader)
         finfo = OrderedDict()

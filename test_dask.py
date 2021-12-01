@@ -1,11 +1,10 @@
 import io
 import gc
 import time
-import pandas as pd
 from fastparquet import ParquetFile
 import dask.dataframe as dd
-import dike.webhdfs
-import dike.util
+import dike.core.webhdfs
+import dike.core.util
 
 
 def read_row_group(pf, index, columns):
@@ -20,7 +19,7 @@ if __name__ == '__main__':
     # TPC-H 100 GB
     #fname = '/tpch-test-parquet/lineitem.parquet'
 
-    dike_file = dike.webhdfs.WebHdfsFile(f'webhdfs://172.18.0.100:9860/{fname}', user='peter')
+    dike_file = dike.core.webhdfs.WebHdfsFile(f'webhdfs://172.18.0.100:9860/{fname}', user='peter')
     f = io.BufferedReader(dike_file, buffer_size=(1 << 20))
     pf = ParquetFile(f)
 
@@ -34,7 +33,7 @@ if __name__ == '__main__':
         ddf.set_index('l_orderkey')
         ddf = ddf.groupby('l_orderkey').l_quantity.sum()
         ddf_list[i] = ddf
-        mem_usage = dike.util.get_memory_usage_mb()
+        mem_usage = dike.core.util.get_memory_usage_mb()
         print("Memory usage", mem_usage)
         gc.collect()
         if mem_usage > 4096:  # 4 GB limit
