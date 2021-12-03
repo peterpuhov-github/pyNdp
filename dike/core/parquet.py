@@ -44,6 +44,7 @@ if __name__ == '__main__':
             'part-00000-badcef81-d816-44c1-b936-db91dae4c15f-c000.snappy.parquet'
 
     f = WebHdfsFile(f'webhdfs://172.18.0.100:9870/{fname}', user='peter')
+    f.enable_cache()
 
     reader = ParquetReader(f)
     start = time.time()

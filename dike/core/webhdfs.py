@@ -2,15 +2,12 @@ import os
 import urllib.parse
 import http.client
 import json
+from concurrent.futures import ThreadPoolExecutor
 
-'''
-from pywebhdfs.webhdfs import PyWebHdfsClient
-fs = PyWebHdfsClient(host='dikehdfs', port='9870', user_name='peter')
-file_status = fs.get_file_dir_status(path)['FileStatus']
-size = self.file_status['length']
-fs.read_file(path, offset=pos, length=length, buffersize=8192)
-'''
 
+class HttpReader(object):
+    def __init__(self, netloc, req, offset, length):
+        self
 class WebHdfsFile(object):
     def __init__(self, name, user, buffer_size=(128 << 10), size=None, data_url=None, data_req=None):
         self.name = name
@@ -19,12 +16,11 @@ class WebHdfsFile(object):
         self.mode = 'rb'
         self.closed = False
         self.offset = 0
-        self.CACHE_SIZE = 8 << 20
-        self._cache_data = bytearray(self.CACHE_SIZE)
-        self._cache_view = memoryview(self._cache_data)
-        self._cache_offset = -1
+        self.cache = None
+        # self.executor = ThreadPoolExecutor(max_workers=1)
         self.read_stats = []
         self.read_bytes = 0
+        self.verbose = False
 
         if size is None: # Support for copy constructor
             self.url = urllib.parse.urlparse(self.name)
@@ -53,11 +49,22 @@ class WebHdfsFile(object):
             self.data_req = data_req
             self.data_url = data_url
 
-    def copy(original):  # Copy constructor
-        return WebHdfsFile(original.name, original.user, original.buffer_size, original.size, original.data_url, original.data_req)
+    def enable_cache(self):
+        self.cache = dict()
+        self.cache['CACHE_SIZE'] = 8 << 20
+        self.cache['_cache_data'] = bytearray(self.cache['CACHE_SIZE'])
+        self.cache['_cache_view'] = memoryview(self.cache['_cache_data'])
+        self.cache['_cache_offset'] = -1
+
+    def copy(self):  # Copy constructor
+        f = WebHdfsFile(self.name, self.user, self.buffer_size, self.size, self.data_url, self.data_req)
+        if self.cache is not None:
+            f.enable_cache()
+
+        return f
 
     def seek(self, offset, whence=0):
-        # print("Attempt to seek {} from {}".format(offset, whence))
+        #print("Attempt to seek {} from {}".format(offset, whence))
         if whence == os.SEEK_SET:
             self.offset = offset
         elif whence == os.SEEK_CUR:
@@ -68,47 +75,58 @@ class WebHdfsFile(object):
         return self.offset
 
     def read(self, length=-1):
-        # print(f"Attempt to read from {self.offset} len {length}")
+        if self.verbose:
+            print(f"Attempt to read from {self.offset} len {length}")
         pos = self.offset
         if length == -1:
             length = self.size - pos
 
         self.offset += length
         self.read_bytes += length
-        # Check if we have data in cache
-        if 0 <= self._cache_offset <= pos and \
-            pos + length < self._cache_offset + self.CACHE_SIZE:
-            begin = pos - self._cache_offset
-            end = begin + length
-            return self._cache_data[begin:end]
-
-        # We have a cache miss
-        if self.size - pos > self.CACHE_SIZE:
-            self.read_stats.append((pos, self.CACHE_SIZE))
-            req = f'{self.data_req}&offset={pos}&length={self.CACHE_SIZE}'
+        if self.cache is None:
+            self.read_stats.append((pos, length))
+            req = f'{self.data_req}&offset={pos}&length={length}'
             conn = http.client.HTTPConnection(self.data_url.netloc, blocksize=self.buffer_size)
             conn.request("GET", req)
             resp = conn.getresponse()
-            # resp.readinto(self._cache_data)
-            resp.readinto(self._cache_view)
+            data = resp.read(length)
             conn.close()
-            self._cache_offset = pos
-            return self._cache_data[:length]
+            return data
+
+        cache_size = self.cache['CACHE_SIZE']
+        # Check if we have data in cache
+        if 0 <= self.cache['_cache_offset'] <= pos and \
+            pos + length < self.cache['_cache_offset'] + cache_size:
+            begin = pos - self.cache['_cache_offset']
+            end = begin + length
+            return self.cache['_cache_data'][begin:end]
+
+        # We have a cache miss
+        if self.size - pos > self.cache['CACHE_SIZE']:
+            self.read_stats.append((pos, self.cache['CACHE_SIZE']))
+            req = f'{self.data_req}&offset={pos}&length={cache_size}'
+            conn = http.client.HTTPConnection(self.data_url.netloc, blocksize=self.buffer_size)
+            conn.request("GET", req)
+            resp = conn.getresponse()
+            # resp.readinto(self.cache['_cache_data'])
+            resp.readinto(self.cache['_cache_view'])
+            conn.close()
+            self.cache['_cache_offset'] = pos
+            return self.cache['_cache_data'][:length]
 
         self.read_stats.append((pos, length))
 
-        req = f'{self.data_req}&offset={self.size - self.CACHE_SIZE}&length={self.CACHE_SIZE}'
+        req = f'{self.data_req}&offset={self.size - cache_size}&length={self.cache["CACHE_SIZE"]}'
         conn = http.client.HTTPConnection(self.data_url.netloc)
         conn.request("GET", req)
         resp = conn.getresponse()
-        # resp.readinto(self._cache_data)
-        resp.readinto(self._cache_view)
+        # resp.readinto(self.cache['_cache_data'])
+        resp.readinto(self.cache['_cache_view'])
         conn.close()
-        self._cache_offset = self.size - self.CACHE_SIZE
-        begin = pos - self._cache_offset
+        self.cache['_cache_offset'] = self.size - cache_size
+        begin = pos - self.cache['_cache_offset']
         end = begin + length
-        return self._cache_data[begin:end]
-
+        return self.cache['_cache_data'][begin:end]
 
     def readinto(self, b):
         buffer = self.read(len(b))
