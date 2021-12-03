@@ -44,11 +44,10 @@ if __name__ == '__main__':
     end = time.time()
     print(f"Run time is: {end - start:.3f} secs {(f.read_bytes/(1<<20)) / (end - start):.3f} MB/s")
     start = time.time()
-    # query = "SELECT * FROM arrow WHERE l_shipdate >= '1995-09-01' AND l_shipdate < '1995-10-01'"
-    query = "SELECT * FROM arrow WHERE l_shipdate BETWEEN '1995-09-01' AND '1995-10-01'"
+    query = "SELECT * FROM arrow WHERE l_shipdate >= '1995-09-01' AND l_shipdate < '1995-10-01'"
 
     # df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchdf()
     df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchnumpy()
     end = time.time()
-    # print(df)
+    print(df[columns[0]].size)
     print(f"Query time is: {end - start:.3f} secs")

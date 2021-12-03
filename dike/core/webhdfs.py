@@ -51,7 +51,7 @@ class WebHdfsFile(object):
 
     def enable_cache(self):
         self.cache = dict()
-        self.cache['CACHE_SIZE'] = 8 << 20
+        self.cache['CACHE_SIZE'] = 4 << 20
         self.cache['_cache_data'] = bytearray(self.cache['CACHE_SIZE'])
         self.cache['_cache_view'] = memoryview(self.cache['_cache_data'])
         self.cache['_cache_offset'] = -1
@@ -83,7 +83,11 @@ class WebHdfsFile(object):
 
         self.offset += length
         self.read_bytes += length
-        if self.cache is None:
+        cache_size = 0
+        if self.cache is not None:
+            cache_size = self.cache['CACHE_SIZE']
+
+        if length > cache_size:  # Cache is disabled or not big enough
             self.read_stats.append((pos, length))
             req = f'{self.data_req}&offset={pos}&length={length}'
             conn = http.client.HTTPConnection(self.data_url.netloc, blocksize=self.buffer_size)
@@ -93,7 +97,7 @@ class WebHdfsFile(object):
             conn.close()
             return data
 
-        cache_size = self.cache['CACHE_SIZE']
+
         # Check if we have data in cache
         if 0 <= self.cache['_cache_offset'] <= pos and \
             pos + length < self.cache['_cache_offset'] + cache_size:
