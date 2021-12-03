@@ -1,9 +1,13 @@
 import time
+import pyarrow
+import pyarrow.parquet
 import numpy
-from pyspark.serializers import write_with_length
+import duckdb
+from dike.core.webhdfs import WebHdfsFile
+from concurrent.futures import ThreadPoolExecutor
 
-from fastparquet import ParquetFile
-import dike.core.webhdfs
+from pyspark.serializers import write_with_length
+import sqlparse
 
 
 class DataTypes:
@@ -18,42 +22,32 @@ class DataTypes:
 
     type = {'int64': INT64, 'float64': DOUBLE}
 
+def read_col(pf, col):
+    return pf.read_row_group(0, columns=[col])
 
-class TpchQ14:
-    def __init__(self, file_name: str, row_group: int):
-        f = dike.core.webhdfs.WebHdfsFile(f'webhdfs://dikehdfs:9860/{file_name}', user='peter')
-        # f1 = dike.webhdfs.WebHdfsFile.copy(f)
 
-        pf = ParquetFile(f)
-        filter_columns = ['l_shipdate']
-        projection_columns = ['l_partkey', 'l_extendedprice', 'l_discount']
-        total_columns = filter_columns + projection_columns
-        # Align projection with Parquet scema
-        total_columns = [c for c in pf.columns if c in total_columns]
-        print(total_columns)
-        start = time.time()
-        self.df = pf.read_row_group_file(pf.row_groups[row_group], total_columns, {}, partition_meta=pf.partition_meta)
-        end = time.time()
-        print(f"Read time is: {end - start} secs")
+def read_parallel(f, columns):
+    pf = pyarrow.parquet.ParquetFile(f)
+    executor = ThreadPoolExecutor(max_workers=len(columns))
+    futures = list()
+    for col in columns:
+        fin = f.copy()
+        pfin = pyarrow.parquet.ParquetFile(fin, metadata=pf.metadata)
+        futures.append(executor.submit(read_col, pfin, col))
 
-        print(f'Total rows {self.df.shape[0]}')
+    return [r.result().column(0) for r in futures]
 
-        # self.df['l_shipdate'] = pd.to_datetime(self.df['l_shipdate'], format='%Y-%m-%d')
-        # a1 = pd.to_datetime('1995-09-01', format='%Y-%m-%d')
-        # a2 = pd.to_datetime('1995-10-01', format='%Y-%m-%d')
-        # print(f'{type(a1)} : {a1}')
-        # self.df = self.df[(self.df['l_shipdate'] >= a1) & (self.df['l_shipdate'] < a2)]
-
-        #filter = (self.df['l_shipdate'] >= '1995-09-01') & (self.df['l_shipdate'] < '1995-10-01')
-        #self.df = self.df[filter]
-
-        self.df = self.df[(self.df['l_shipdate'] >= '1995-09-01') & (self.df['l_shipdate'] < '1995-10-01')]
-        # self.df = self.df.loc[(self.df.l_shipdate >= "1995-09-01") & (self.df.l_shipdate < "1995-10-01")]
-        # self.df = self.df.query('l_shipdate >= "1995-09-01" & l_shipdate < "1995-10-01"')
-
-        print(f'Filtered rows {self.df.shape[0]}')
-        self.df = self.df[projection_columns]
-        print(f'projected columns {self.df.columns}')
+class TpchSQL:
+    def __init__(self, config):
+        f = WebHdfsFile(config['url'])
+        pf = pyarrow.parquet.ParquetFile(f)
+        tokens = sqlparse.parse(config['query'])[0].flatten()
+        sql_columns = set([t.value for t in tokens if t.ttype in [sqlparse.tokens.Token.Name]])
+        columns = [col for col in pf.schema_arrow.names if col in sql_columns]
+        print(columns)
+        tbl = pyarrow.Table.from_arrays(read_parallel(f, columns), names=columns)
+        self.df = duckdb.from_arrow_table(tbl).query("arrow", config['query']).fetchdf()
+        print(f'Computed df {self.df.shape}')
 
     def to_spark(self, outfile):
         header = numpy.empty(len(self.df.columns) + 1, numpy.int64)
@@ -74,4 +68,3 @@ class TpchQ14:
             header[3] = 0  # Compressed len
             outfile.write(header.byteswap().newbyteorder().tobytes())
             outfile.write(data)
-

@@ -9,7 +9,7 @@ class HttpReader(object):
     def __init__(self, netloc, req, offset, length):
         self
 class WebHdfsFile(object):
-    def __init__(self, name, user, buffer_size=(128 << 10), size=None, data_url=None, data_req=None):
+    def __init__(self, name, user=None, buffer_size=(128 << 10), size=None, data_url=None, data_req=None):
         self.name = name
         self.user = user
         self.buffer_size = buffer_size
@@ -17,13 +17,17 @@ class WebHdfsFile(object):
         self.closed = False
         self.offset = 0
         self.cache = None
-        # self.executor = ThreadPoolExecutor(max_workers=1)
         self.read_stats = []
         self.read_bytes = 0
         self.verbose = False
 
-        if size is None: # Support for copy constructor
+        if size is None:  # Support for copy constructor
             self.url = urllib.parse.urlparse(self.name)
+            if self.user is None:
+                for q in self.url.query.split('&'):
+                    if 'user.name=' in q:
+                        self.user = q.split('user.name=')[1]
+
             self.conn = http.client.HTTPConnection(self.url.netloc)
             req = f'/webhdfs/v1/{self.url.path}?op=GETFILESTATUS'
             self.conn.request("GET", req)

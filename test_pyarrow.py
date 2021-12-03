@@ -1,6 +1,7 @@
 import time
 import pyarrow
 import pyarrow.parquet
+import numpy
 from dike.core.webhdfs import WebHdfsFile
 from concurrent.futures import ThreadPoolExecutor
 
@@ -12,6 +13,10 @@ def read_col(pf, col):
 
 def read_parallel(f, columns):
     pf = pyarrow.parquet.ParquetFile(f)
+
+    dtypes = pf.schema_arrow.types
+    print(type(dtypes[0]))
+    print(numpy.dtype(dtypes[0].to_pandas_dtype()).name)
 
     executor = ThreadPoolExecutor(max_workers=len(columns))
     futures = list()

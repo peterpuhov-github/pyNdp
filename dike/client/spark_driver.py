@@ -8,21 +8,18 @@ from pyspark.serializers import write_with_length, write_int, read_long, read_bo
     BatchedSerializer
 
 
-def ndp_reader(split_index, dag_json):
-    dag = json.loads(dag_json)
-    print(dag['NodeArray'])
-    input_node = [n for n in dag['NodeArray'] if n['Type'] =='_INPUT'][0]
+def ndp_reader(split_index, config_json):
+    config = json.loads(config_json)
+    print(config)
+    return dike.client.tpch.TpchSQL(config)
 
-    q14 = dike.client.tpch.TpchQ14(input_node['File'], int(input_node['RowGroup']))
-
-    return q14
 
 utf8_deserializer = UTF8Deserializer()
 
+
 class DeSerializer:
     def load_stream(self, infile):
-        dag = utf8_deserializer.loads(infile)
-        return dag
+        return utf8_deserializer.loads(infile)
 
 
 class Serializer:
