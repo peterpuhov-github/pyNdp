@@ -22,18 +22,18 @@ class DataTypes:
 
     type = {'int64': INT64, 'float64': DOUBLE}
 
-def read_col(pf, col):
-    return pf.read_row_group(0, columns=[col])
+def read_col(pf, rg, col):
+    return pf.read_row_group(rg, columns=[col])
 
 
-def read_parallel(f, columns):
+def read_parallel(f, rg, columns):
     pf = pyarrow.parquet.ParquetFile(f)
     executor = ThreadPoolExecutor(max_workers=len(columns))
     futures = list()
     for col in columns:
         fin = f.copy()
         pfin = pyarrow.parquet.ParquetFile(fin, metadata=pf.metadata)
-        futures.append(executor.submit(read_col, pfin, col))
+        futures.append(executor.submit(read_col, pfin, rg, col))
 
     return [r.result().column(0) for r in futures]
 
@@ -45,7 +45,8 @@ class TpchSQL:
         sql_columns = set([t.value for t in tokens if t.ttype in [sqlparse.tokens.Token.Name]])
         columns = [col for col in pf.schema_arrow.names if col in sql_columns]
         print(columns)
-        tbl = pyarrow.Table.from_arrays(read_parallel(f, columns), names=columns)
+        rg = int(config['row_group'])
+        tbl = pyarrow.Table.from_arrays(read_parallel(f, rg, columns), names=columns)
         self.df = duckdb.from_arrow_table(tbl).query("arrow", config['query']).fetchdf()
         print(f'Computed df {self.df.shape}')
 
