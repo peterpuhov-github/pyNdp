@@ -1,5 +1,6 @@
 import duckdb
 import time
+import numpy
 import pyarrow
 import pyarrow.parquet
 from dike.core.webhdfs import WebHdfsFile
@@ -13,7 +14,7 @@ def read_col(pf, col):
 
 def read_parallel(f, columns):
     pf = pyarrow.parquet.ParquetFile(f)
-
+    print(pf.schema_arrow.names)
     executor = ThreadPoolExecutor(max_workers=len(columns))
     futures = list()
     for col in columns:
@@ -46,8 +47,23 @@ if __name__ == '__main__':
     start = time.time()
     query = "SELECT * FROM arrow WHERE l_shipdate >= '1995-09-01' AND l_shipdate < '1995-10-01'"
 
-    # df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchdf()
-    df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchnumpy()
+    df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchdf()
+    # df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchnumpy()
+
+    for col in df.columns:
+        data = df[col].to_numpy()
+        if data.dtype == 'object' and isinstance(data[0], str):
+            s = data.astype(dtype=numpy.bytes_)
+            l = numpy.char.str_len(s).astype(dtype=numpy.ubyte)
+            fixed_len = numpy.all(l == l[0])
+            if fixed_len:
+                print(f'All strings have len {l[0]}')
+
+            print(s[0], numpy.char.str_len(s)[0])
+            print(len(s.tobytes()))
+            print(s.tobytes()[:20])
+            print(l.tobytes()[:4])
+
     end = time.time()
     print(df[columns[0]].size)
     print(f"Query time is: {end - start:.3f} secs")

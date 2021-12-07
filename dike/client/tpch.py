@@ -20,7 +20,7 @@ class DataTypes:
     BYTE_ARRAY = 6
     FIXED_LEN_BYTE_ARRAY = 7
 
-    type = {'int64': INT64, 'float64': DOUBLE}
+    type = {'int64': INT64, 'float64': DOUBLE, 'object': BYTE_ARRAY}
 
 def read_col(pf, rg, col):
     return pf.read_row_group(rg, columns=[col])
@@ -61,11 +61,32 @@ class TpchSQL:
 
         write_with_length(header.byteswap().newbyteorder().tobytes(), outfile)
         for col in self.df.columns:
-            data = self.df[col].to_numpy().byteswap().newbyteorder().tobytes()
-            header = numpy.empty(4, numpy.int32)
-            header[0] = DataTypes.type[self.df.dtypes[col].name]
-            header[1] = 0  # Used for FIXED_LEN_BYTE_ARRAY ONLY
-            header[2] = len(data)
-            header[3] = 0  # Compressed len
-            outfile.write(header.byteswap().newbyteorder().tobytes())
-            outfile.write(data)
+            self.write_column(col, outfile)
+
+    def write_column(self, column, outfile):
+        data = self.df[column].to_numpy()
+        header = None
+        if data.dtype == 'object' and isinstance(data[0], str):
+            s = data.astype(dtype=numpy.bytes_)
+            l = numpy.char.str_len(s).astype(dtype=numpy.ubyte)
+            fixed_len = numpy.all(l == l[0])
+            data = s.tobytes()
+            if fixed_len:
+                data_type = DataTypes.FIXED_LEN_BYTE_ARRAY
+                header = numpy.array([data_type, l[0], len(data), 0], numpy.int32)
+            else:
+                data_type = DataTypes.BYTE_ARRAY
+                h = numpy.array([data_type, 0, len(l), 0], numpy.int32)
+                outfile.write(h.byteswap().newbyteorder().tobytes())
+                outfile.write(l.tobytes())
+                header = numpy.array([data_type, 0, len(data), 0], numpy.int32)
+
+        else:  # Binary type
+            data = data.byteswap().newbyteorder().tobytes()
+            data_type = DataTypes.type[self.df.dtypes[column].name]
+            header = numpy.array([data_type, 0, len(data), 0], numpy.int32)
+
+        outfile.write(header.byteswap().newbyteorder().tobytes())
+        outfile.write(data)
+
+
