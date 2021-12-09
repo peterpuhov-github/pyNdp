@@ -25,8 +25,12 @@ import javax.xml.bind.DatatypeConverter;
 import javax.json.Json;
 import javax.json.JsonObject;
 import javax.json.JsonReader;
-
-import org.python.util.PythonInterpreter;
+import java.io.StringWriter;
+import javax.json.Json;
+import javax.json.JsonObject;
+import javax.json.JsonObjectBuilder;
+import javax.json.JsonArrayBuilder;
+import javax.json.JsonWriter;
 
 // import org.apache.commons.codec.binary.Hex; // For byte[] decoded = Hex.decodeHex("00A0BF");
 
@@ -66,15 +70,15 @@ public class DikePyNdpClient
         //StartSocketServer();
         try {
         String cmdStr = command;
-        String dag = "{\"Name\":\"DAG Projection\",\"NodeArray\":[{\"Name\":\"InputNode\",\"Type\":\"_INPUT\",\"RowGroup\":\"0\",\"File\":\"/tpch-test-parquet-1g/lineitem.parquet/part-00000-badcef81-d816-44c1-b936-db91dae4c15f-c000.snappy.parquet\"},{\"Name\":\"TpchQ14 Filter\",\"Type\":\"_FILTER\",\"FilterArray\":[{\"Expression\":\"IsNotNull\",\"Arg\":{\"ColumnReference\":\"l_shipdate\"}},{\"Expression\":\"GreaterThanOrEqual\",\"Left\":{\"ColumnReference\":\"l_shipdate\"},\"Right\":{\"Literal\":\"1995-09-01\"}},{\"Expression\":\"LessThan\",\"Left\":{\"ColumnReference\":\"l_shipdate\"},\"Right\":{\"Literal\":\"1995-10-01\"}}]},{\"Name\":\"TpchQ14 Project\",\"Type\":\"_PROJECTION\",\"ProjectionArray\":[\"l_partkey\",\"l_extendedprice\",\"l_discount\"]},{\"Name\":\"OutputNode\",\"Type\":\"_OUTPUT\",\"CompressionType\":\"ZSTD\",\"CompressionLevel\":\"2\"}]}";
-
-        if(false){
+        // String dag = "{\"Name\":\"DAG Projection\",\"NodeArray\":[{\"Name\":\"InputNode\",\"Type\":\"_INPUT\",\"RowGroup\":\"0\",\"File\":\"/tpch-test-parquet-1g/lineitem.parquet/part-00000-badcef81-d816-44c1-b936-db91dae4c15f-c000.snappy.parquet\"},{\"Name\":\"TpchQ14 Filter\",\"Type\":\"_FILTER\",\"FilterArray\":[{\"Expression\":\"IsNotNull\",\"Arg\":{\"ColumnReference\":\"l_shipdate\"}},{\"Expression\":\"GreaterThanOrEqual\",\"Left\":{\"ColumnReference\":\"l_shipdate\"},\"Right\":{\"Literal\":\"1995-09-01\"}},{\"Expression\":\"LessThan\",\"Left\":{\"ColumnReference\":\"l_shipdate\"},\"Right\":{\"Literal\":\"1995-10-01\"}}]},{\"Name\":\"TpchQ14 Project\",\"Type\":\"_PROJECTION\",\"ProjectionArray\":[\"l_partkey\",\"l_extendedprice\",\"l_discount\"]},{\"Name\":\"OutputNode\",\"Type\":\"_OUTPUT\",\"CompressionType\":\"ZSTD\",\"CompressionLevel\":\"2\"}]}";
+        String dag;
+        if(true){
         // System.out.println(dag);
         String fname = "tpch-test-parquet-1g/lineitem.parquet/part-00000-badcef81-d816-44c1-b936-db91dae4c15f-c000.snappy.parquet";
         String user = "peter";
         String url = "http://172.18.0.1:9860/" + fname + "?op=GETFILESTATUS&user.name=" + user;
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setRequestProperty("ReadParam", dag);
+        //connection.setRequestProperty("ReadParam", dag);
         connection.setRequestMethod("GET");
         BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
         JsonReader jsonReader = Json.createReader(reader);
@@ -82,10 +86,28 @@ public class DikePyNdpClient
 
         jsonReader.close();
         reader.close();
+        System.out.println(String.format("row_group_count  = %d", jsonObj.getInt("num_row_groups") ));
 
-        System.out.println(String.format("row_group_count  = %d", jsonObj.getInt("row_group_count") ));
-        cmdStr = jsonObj.getString("spark_worker_command");
-        System.out.println(String.format("cmdStr = %s", cmdStr ));
+        JsonObjectBuilder configBuilder = Json.createObjectBuilder();
+        configBuilder.add("url",  "http://dikehdfs:9870/" + fname + "?op=OPEN&user.name=" + user);
+        configBuilder.add("row_group",  "1");
+        configBuilder.add("query",  "SELECT l_partkey, l_extendedprice, l_discount, l_shipdate, l_comment FROM arrow WHERE l_shipdate >= '1995-09-01' AND l_shipdate < '1995-10-01'");
+        JsonObject config = configBuilder.build();
+        StringWriter stringWriter = new StringWriter();
+        JsonWriter writer = Json.createWriter(stringWriter);
+        writer.writeObject(config);
+        writer.close();
+        dag = stringWriter.getBuffer().toString();
+
+        /* This is just for the test
+        url = "http://172.18.0.1:9860/" + fname + "?op=OPEN&user.name=" + user;
+        connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setRequestProperty("ReadParam", dag);
+        connection.setRequestMethod("GET");
+        reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+        reader.close();
+        */
+
         }
 
         Thread t = StartServer(cmdStr, dag);
