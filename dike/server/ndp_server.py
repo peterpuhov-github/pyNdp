@@ -1,63 +1,106 @@
-import io
+import argparse
 import json
-import threading
 import numpy
 import http.server
 from http import HTTPStatus
-import xml.etree.ElementTree
 import urllib.parse
-from collections import OrderedDict
-# from fastparquet import ParquetFile
 import pyarrow.parquet
+
 import dike.core.webhdfs
-import dike.code_factory
-
-DIKE_CONFIG = {}
+import dike.client.tpch
 
 
-class NdpMasterRequestHandler(http.server.BaseHTTPRequestHandler):
+class ChunkedWriter:
+    def __init__(self, wfile):
+        self.wfile = wfile
+
+    def write(self, data):
+        self.wfile.write(f'{len(data):x}\r\n'.encode())
+        self.wfile.write(data)
+        self.wfile.write('\r\n'.encode())
+
+    def close(self):
+        self.wfile.write('0\r\n\r\n'.encode())
+
+
+class NdpRequestHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
     def send_name_node_request(self):
-        conn = http.client.HTTPConnection(DIKE_CONFIG['dfs.namenode.http-address'])
-        conn.request("GET", f'/webhdfs/v1{self.path}', '', self.headers)
+        conn = http.client.HTTPConnection(self.server.config.webhdfs)
+        conn.request("GET", self.path, '', self.headers)
         response = conn.getresponse()
         data = response.read()
         conn.close()
         return response, data
 
-    def do_GET(self):
-        print('Path', self.path)
+    def parse_url(self):
         url = urllib.parse.urlparse(self.path)
-        query = url.query.split('&')
-        user = None
-        op = None
-        for q in query:
+        for q in url.query.split('&'):
             if 'user.name=' in q:
                 user = q.split('user.name=')[1]
                 setattr(self, 'user', user)
             if 'op=' in q:
                 op = q.split('op=')[1]
+                setattr(self, 'op', op)
 
-        if op == 'GETFILESTATUS':
-            return self.do_GETFILESTATUS()
-        elif op == 'OPEN':
-            return self.do_OPEN()
 
-    def do_OPEN(self):
+    def do_POST(self):
+        print('POST', self.path)
+        self.parse_url()
+        data = self.rfile.read(int(self.headers['Content-Length']))
+        config = json.loads(data)
+        print(config)
+        url = urllib.parse.urlparse(config['url'])
+        netloc = self.server.config.webhdfs
+        config['url'] = f'http://{netloc}{url.path}?{url.query}'
+        config['use_ndp'] = 'False'
+        print(config['url'])
+        tpch_sql = dike.client.tpch.TpchSQL(config)
+        self.send_response(HTTPStatus.OK)
+        self.send_header('Transfer-Encoding', 'chunked')
+        self.end_headers()
+        writer = ChunkedWriter(self.wfile)
+        tpch_sql.to_spark(writer)
+        writer.close()
+
+
+    def do_GET(self):
+        print('GET', self.path)
+        self.parse_url()
+
+        if self.op == 'GETNDPINFO':
+            return self.get_ndp_info()
+        else:
+            return self.forward_to_hdfs()
+
+    def forward_to_hdfs(self):
         resp, data = self.send_name_node_request()
         self.send_response(resp.status, resp.reason)
+        transfer_encoding = None
         for h in resp.headers.items():
+            if h[0] == 'Transfer-Encoding':
+                transfer_encoding = h[1]
+
             self.send_header(h[0], h[1])
 
         self.end_headers()
+        if transfer_encoding == 'chunked':
+            writer = ChunkedWriter(self.wfile)
+            writer.write(data)
+            writer.close()
+        else:
+            self.wfile.write(data)
 
-    def do_GETFILESTATUS(self):
-        netloc = DIKE_CONFIG['dfs.namenode.http-address']
+        self.wfile.flush()
+
+
+    def get_ndp_info(self):
+        netloc = self.server.config.webhdfs
         f = dike.core.webhdfs.WebHdfsFile(f'webhdfs://{netloc}/{self.path}', user=self.user)
         pf = pyarrow.parquet.ParquetFile(f)
-        info = OrderedDict()
+        info = dict()
         info['columns'] = pf.schema_arrow.names
         info['dtypes'] = [numpy.dtype(c.to_pandas_dtype()).name for c in pf.schema_arrow.types]
         info['num_row_groups'] = pf.num_row_groups
@@ -68,56 +111,23 @@ class NdpMasterRequestHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(info_json.encode())
 
 
-class NdpDataRequestHandler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-
-        fs = HadoopFileSystem('172.18.0.3', port=9000, user='peter', replication=1, driver='libhdfs3')
-
-        with fs.open_input_file('/tpch-test-parquet/lineitem.parquet') as f:
-            parquet_file = pyarrow.parquet.ParquetFile(f)
-            print('parquet_file.num_row_groups', parquet_file.num_row_groups)
-
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
-        self.wfile.write(b'OK')
-
-
-class NdpNode(threading.Thread):
-    def __init__(self, address, handler):
-        threading.Thread.__init__(self)
-        self.address = address
-        self.handler = handler
-
-    def run(self):
-        httpd = http.server.ThreadingHTTPServer(self.address, self.handler)
-        httpd.serve_forever()
-
-
-def serve_forever(config_file):
-    tree = xml.etree.ElementTree.parse(config_file)
-    root = tree.getroot()
-
-    for config_property in root[0].findall('property'):
-        name = config_property.find('name').text
-        value = config_property.find('value').text
-        print(name, ':', value)
-        DIKE_CONFIG[name] = value
-
-    # Launch HDFS Node servers
-    servers = [
-        (('', int(DIKE_CONFIG['dike.pyndp.master-port'])), NdpMasterRequestHandler),
-        (('', int(DIKE_CONFIG['dike.pyndp.data-port'])), NdpDataRequestHandler)
-    ]
-
-    threads = [NdpNode(s[0], s[1]) for s in servers]
-    for th in threads:
-        th.daemon = True
-        th.start()
-
-    for th in threads:
-        th.join()
+class NdpServer(http.server.ThreadingHTTPServer):
+    def __init__(self, server_address, handler, config):
+        super().__init__(server_address, handler)
+        self.config = config
 
 
 if __name__ == '__main__':
-    serve_forever('../../dikeHDFS.xml')
+    parser = argparse.ArgumentParser(description='Run NDP server.')
+    parser.add_argument('-w', '--webhdfs', default='127.0.0.1:9870', help='Namenode http-address')
+    parser.add_argument('-p', '--port', type=int, default='9860', help='Server port')
+    config = parser.parse_args()
+    print(f'Listening to port:{config.port} HDFS:{config.webhdfs}')
+    ndp_server = NdpServer(('', config.port), NdpRequestHandler, config)
+    try:
+        ndp_server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Clean-up server (close socket, etc.)
+        ndp_server.server_close()

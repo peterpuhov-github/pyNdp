@@ -29,7 +29,7 @@ class WebHdfsFile(object):
                         self.user = q.split('user.name=')[1]
 
             self.conn = http.client.HTTPConnection(self.url.netloc)
-            req = f'/webhdfs/v1/{self.url.path}?op=GETFILESTATUS'
+            req = f'/webhdfs/v1/{self.url.path}?op=GETFILESTATUS&user.name={self.user}'
             self.conn.request("GET", req)
             resp = self.conn.getresponse()
             resp_data = resp.read()

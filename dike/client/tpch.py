@@ -1,13 +1,17 @@
 import time
+import http.client
+import json
+from concurrent.futures import ThreadPoolExecutor
+import urllib.parse
 import pyarrow
 import pyarrow.parquet
 import numpy
 import duckdb
-from dike.core.webhdfs import WebHdfsFile
-from concurrent.futures import ThreadPoolExecutor
+import sqlparse
 
 from pyspark.serializers import write_with_length
-import sqlparse
+
+from dike.core.webhdfs import WebHdfsFile
 
 
 class DataTypes:
@@ -21,6 +25,7 @@ class DataTypes:
     FIXED_LEN_BYTE_ARRAY = 7
 
     type = {'int64': INT64, 'float64': DOUBLE, 'object': BYTE_ARRAY}
+
 
 def read_col(pf, rg, col):
     return pf.read_row_group(rg, columns=[col])
@@ -37,8 +42,26 @@ def read_parallel(f, rg, columns):
 
     return [r.result().column(0) for r in futures]
 
+
 class TpchSQL:
     def __init__(self, config):
+        self.df = None
+        self.ndp_data = None
+        if config['use_ndp'] == 'True':
+            self.remote_run(config)
+        else:
+            self.local_run(config)
+
+    def remote_run(self, config):
+        url = urllib.parse.urlparse(config['url'])
+        conn = http.client.HTTPConnection(url.netloc)
+        headers = {'Content-type': 'application/json'}
+        conn.request("POST", config['url'], json.dumps(config), headers)
+        response = conn.getresponse()
+        self.ndp_data = response.read()
+        conn.close()
+
+    def local_run(self, config):
         f = WebHdfsFile(config['url'])
         pf = pyarrow.parquet.ParquetFile(f)
         tokens = sqlparse.parse(config['query'])[0].flatten()
@@ -51,6 +74,10 @@ class TpchSQL:
         print(f'Computed df {self.df.shape}')
 
     def to_spark(self, outfile):
+        if self.df is None:
+            outfile.write(self.ndp_data)
+            return
+
         header = numpy.empty(len(self.df.columns) + 1, numpy.int64)
         dtypes = [DataTypes.type[self.df.dtypes[c].name] for c in self.df.columns]
         header[0] = len(self.df.columns)

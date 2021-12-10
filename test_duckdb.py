@@ -47,11 +47,12 @@ if __name__ == '__main__':
     start = time.time()
     query = "SELECT * FROM arrow WHERE l_shipdate >= '1995-09-01' AND l_shipdate < '1995-10-01'"
 
-    df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchdf()
-    # df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchnumpy()
+    # df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchdf()
+    df = duckdb.from_arrow_table(tbl).query("arrow", query).fetchnumpy()
 
-    for col in df.columns:
-        data = df[col].to_numpy()
+    print(len(df))
+    for col, data in df.items():
+        # data = df[col].to_numpy()
         if data.dtype == 'object' and isinstance(data[0], str):
             s = data.astype(dtype=numpy.bytes_)
             l = numpy.char.str_len(s).astype(dtype=numpy.ubyte)
