@@ -76,7 +76,7 @@ public class DikePyNdpClient
         // System.out.println(dag);
         String fname = "tpch-test-parquet-1g/lineitem.parquet/part-00000-badcef81-d816-44c1-b936-db91dae4c15f-c000.snappy.parquet";
         String user = "peter";
-        String url = "http://172.18.0.1:9860/" + fname + "?op=GETFILESTATUS&user.name=" + user;
+        String url = "http://172.18.0.1:9860/" + fname + "?op=GETNDPINFO&user.name=" + user;
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         //connection.setRequestProperty("ReadParam", dag);
         connection.setRequestMethod("GET");
@@ -89,7 +89,9 @@ public class DikePyNdpClient
         System.out.println(String.format("row_group_count  = %d", jsonObj.getInt("num_row_groups") ));
 
         JsonObjectBuilder configBuilder = Json.createObjectBuilder();
-        configBuilder.add("url",  "http://dikehdfs:9870/" + fname + "?op=OPEN&user.name=" + user);
+        // configBuilder.add("url",  "http://172.18.0.1:9860/" + fname + "?op=OPEN&user.name=" + user);
+        configBuilder.add("url",  "http://172.18.0.1:9860/" + fname + "?op=SELECTCONTENT&user.name=" + user);
+        configBuilder.add("use_ndp",  "True");
         configBuilder.add("row_group",  "1");
         configBuilder.add("query",  "SELECT l_partkey, l_extendedprice, l_discount, l_shipdate, l_comment FROM arrow WHERE l_shipdate >= '1995-09-01' AND l_shipdate < '1995-10-01'");
         JsonObject config = configBuilder.build();
@@ -117,7 +119,7 @@ public class DikePyNdpClient
 
         } catch (Exception ex) {
             System.out.println("Error occurred: ");
-            ex.printStackTrace();            
+            ex.printStackTrace();
         }
 
     }
@@ -177,7 +179,7 @@ public class DikePyNdpClient
             Socket socket = serverSocket.accept();
             System.out.println("New client connected");
             String secret = "secret";
-            byte [] buffer  = new byte[1024];
+            byte [] buffer  = new byte[8192];
 
             // InputStream input = socket.getInputStream();
             DataInputStream input = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
